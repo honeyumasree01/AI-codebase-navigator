@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 220 13% 10%;
+    --foreground: 220 13% 90%;
+
+    --card: 220 13% 12%;
+    --card-foreground: 220 13% 90%;
+
+    --popover: 220 13% 12%;
+    --popover-foreground: 220 13% 90%;
+
+    --primary: 210 100% 56%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 13% 18%;
+    --secondary-foreground: 220 13% 90%;
+
+    --muted: 220 13% 15%;
+    --muted-foreground: 220 13% 55%;
+
+    --accent: 220 13% 18%;
+    --accent-foreground: 220 13% 90%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 13% 20%;
+    --input: 220 13% 20%;
+    --ring: 210 100% 56%;
+
+    --radius: 0.5rem;
+
+    --sidebar-background: 220 13% 8%;
+    --sidebar-foreground: 220 13% 80%;
+    --sidebar-primary: 210 100% 56%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 13% 14%;
+    --sidebar-accent-foreground: 220 13% 90%;
+    --sidebar-border: 220 13% 18%;
+    --sidebar-ring: 210 100% 56%;
+
+    /* Custom tokens for IDE theme */
+    --ide-bg: 220 13% 8%;
+    --ide-panel: 220 13% 11%;
+    --ide-border: 220 13% 18%;
+    --ide-highlight-amber: 36 100% 50%;
+    --ide-highlight-green: 142 71% 45%;
+    --ide-success: 142 71% 45%;
+    --ide-text-dim: 220 13% 50%;
+    --ide-text: 220 13% 85%;
+    --ide-text-bright: 220 13% 95%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+  }
+}
