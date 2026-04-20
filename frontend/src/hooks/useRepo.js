@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const apiBase = () => (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
+function normalizeApiBase(value) {
+  const raw = value == null ? "" : String(value).trim();
+  if (!raw) return "";
+  return raw.replace(/\/+$/, "");
+}
+
+const apiBase = normalizeApiBase(import.meta.env.VITE_API_URL || "");
 
 const LS_TOKEN = "nav_api_token";
 const LS_REPO = "nav_repo";
@@ -96,7 +102,7 @@ export function useRepo() {
   const connect = useCallback(
     async (githubUrl) => {
       const auth = getBearerToken();
-      const r = await fetch(`${apiBase()}/repos`, {
+      const r = await fetch(`${apiBase}/repos`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -126,7 +132,7 @@ export function useRepo() {
     if (!auth) return;
     let cancelled = false;
     (async () => {
-      const r = await fetch(`${apiBase()}/repos/${encodeURIComponent(repoId)}`, {
+      const r = await fetch(`${apiBase}/repos/${encodeURIComponent(repoId)}`, {
         headers: { Authorization: `Bearer ${auth}` },
       });
       if (cancelled) return;
@@ -141,7 +147,7 @@ export function useRepo() {
     async (overrideId) => {
       const id = overrideId ?? repoId;
       if (!id) return;
-      const r = await fetch(`${apiBase()}/repos/${id}/tree`, {
+      const r = await fetch(`${apiBase}/repos/${id}/tree`, {
         headers: { Authorization: `Bearer ${getBearerToken()}` },
       });
       if (r.status === 404) {

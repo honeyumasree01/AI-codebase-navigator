@@ -21,7 +21,7 @@ export default function App() {
     setRepoUrl,
     clearStaleRepo,
   } = useRepo();
-  const base = apiBase();
+  const base = apiBase;
   const chatRef = useRef(null);
   const [sessionRepoId, setSessionRepoId] = useState(null);
   const [file, setFile] = useState(null);
@@ -185,29 +185,34 @@ export default function App() {
                 window.alert("Set the API token (or VITE_API_TOKEN in .env) before connecting.");
                 return;
               }
-              const { repoId: rid, alreadyIndexed } = await connect(repoUrl);
-              initialFileOpenedRef.current = false;
-              if (alreadyIndexed) {
-                setPct(100);
-                void pullMeta(rid);
-                void loadTree(rid);
-              } else {
-                try {
-                  await getSSE(`${base}/repos/${rid}/status`, getBearerToken, (_, data) => {
-                    try {
-                      const j = JSON.parse(data);
-                      setPct(Number(j.progress_pct) || 0);
-                      if (j.stage === "done") {
-                        void pullMeta(rid);
-                        void loadTree(rid);
+              try {
+                const { repoId: rid, alreadyIndexed } = await connect(repoUrl);
+                initialFileOpenedRef.current = false;
+                if (alreadyIndexed) {
+                  setPct(100);
+                  void pullMeta(rid);
+                  void loadTree(rid);
+                } else {
+                  try {
+                    await getSSE(`${base}/repos/${rid}/status`, getBearerToken, (_, data) => {
+                      try {
+                        const j = JSON.parse(data);
+                        setPct(Number(j.progress_pct) || 0);
+                        if (j.stage === "done") {
+                          void pullMeta(rid);
+                          void loadTree(rid);
+                        }
+                      } catch {
+                        void 0;
                       }
-                    } catch {
-                      void 0;
-                    }
-                  });
-                } catch {
-                  void 0;
+                    });
+                  } catch {
+                    void 0;
+                  }
                 }
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err || "Unknown error");
+                window.alert(`Connect failed: ${msg}`);
               }
             }}
             style={{
