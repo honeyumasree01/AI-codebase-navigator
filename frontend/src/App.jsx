@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import ChatPanel from "./components/ChatPanel.jsx";
 import CodeViewer from "./components/CodeViewer.jsx";
-import DependencyGraph from "./components/DependencyGraph.jsx";
 import FileTree from "./components/FileTree.jsx";
-import ProgressBar from "./components/ProgressBar.jsx";
 import { useRepo } from "./hooks/useRepo.js";
 import { getSSE } from "./hooks/useSSE.js";
+import { firstFilePathInTree } from "./utils/tree.js";
 
 export default function App() {
   const {
@@ -20,33 +19,43 @@ export default function App() {
     apiBase,
     repoUrl,
     setRepoUrl,
+    clearStaleRepo,
   } = useRepo();
   const base = apiBase();
-  /** Set synchronously after connect + from hook so ChatPanel has repo id before next paint. */
+  const chatRef = useRef(null);
   const [sessionRepoId, setSessionRepoId] = useState(null);
   const [file, setFile] = useState(null);
   const [lines, setLines] = useState([]);
   const [hi, setHi] = useState([]);
   const [refs, setRefs] = useState([]);
-  const [graphOpen, setGraphOpen] = useState(false);
-  const [edges, setEdges] = useState([]);
-  const [hist, setHist] = useState([]);
   const [pct, setPct] = useState(0);
   const [metaLocal, setMetaLocal] = useState(meta);
+  const [treeOpen, setTreeOpen] = useState(false);
+  const [fixOpen, setFixOpen] = useState(false);
+  const [fixIssue, setFixIssue] = useState("");
+  const initialFileOpenedRef = useRef(false);
 
   useEffect(() => {
     setMetaLocal(meta);
   }, [meta]);
 
   useEffect(() => {
-    if (repoId) setSessionRepoId(repoId);
+    setSessionRepoId(repoId || null);
   }, [repoId]);
+
+  useEffect(() => {
+    initialFileOpenedRef.current = false;
+  }, [sessionRepoId, repoId]);
 
   const pullMeta = useCallback(
     async (rid) => {
       const r = await fetch(`${base}/repos/${rid}`, {
         headers: { Authorization: `Bearer ${getBearerToken()}` },
       });
+      if (r.status === 404) {
+        clearStaleRepo();
+        return;
+      }
       if (!r.ok) return;
       const j = await r.json();
       setMetaLocal({
@@ -58,7 +67,7 @@ export default function App() {
       setPct(j.status === "complete" ? 100 : 35);
       if (j.github_url) setRepoUrl(j.github_url);
     },
-    [base, setRepoUrl, getBearerToken]
+    [base, setRepoUrl, getBearerToken, clearStaleRepo]
   );
 
   useEffect(() => {
@@ -66,168 +75,393 @@ export default function App() {
     if (!repoId || !auth) return;
     void pullMeta(repoId);
     void loadTree(repoId);
-    (async () => {
-      const r = await fetch(`${base}/repos/${repoId}/history`, {
-        headers: { Authorization: `Bearer ${auth}` },
-      });
-      if (r.ok) setHist(await r.json());
-    })();
   }, [repoId, base, pullMeta, loadTree, getBearerToken]);
 
   const effectiveRepoId = sessionRepoId ?? repoId;
 
-  async function openFile(path, line) {
-    const id = effectiveRepoId;
-    if (!id) return;
-    setFile(path);
-    const r = await fetch(`${base}/repos/${id}/file?path=${encodeURIComponent(path)}`, {
-      headers: { Authorization: `Bearer ${getBearerToken()}` },
-    });
-    if (!r.ok) return;
-    const j = await r.json();
-    setLines(j.lines || []);
-    setHi(line ? [line] : []);
-    const ir = await fetch(`${base}/repos/${id}/imports?path=${encodeURIComponent(path)}`, {
-      headers: { Authorization: `Bearer ${getBearerToken()}` },
-    });
-    if (ir.ok) {
-      const im = await ir.json();
-      const e = [];
-      for (const d of im.dependencies || []) e.push({ source: path, target: d });
-      for (const u of im.dependents || []) e.push({ source: u, target: path });
-      setEdges(e);
+  const openFile = useCallback(
+    async (path, line) => {
+      const id = effectiveRepoId;
+      if (!id) return;
+      setFile(path);
+      const r = await fetch(`${base}/repos/${id}/file?path=${encodeURIComponent(path)}`, {
+        headers: { Authorization: `Bearer ${getBearerToken()}` },
+      });
+      if (!r.ok) return;
+      const j = await r.json();
+      setLines(j.lines || []);
+      setHi(line ? [line] : []);
+    },
+    [base, effectiveRepoId, getBearerToken]
+  );
+
+  useEffect(() => {
+    if (!effectiveRepoId || !tree || initialFileOpenedRef.current) return;
+    const p = firstFilePathInTree(tree);
+    if (p) {
+      initialFileOpenedRef.current = true;
+      void openFile(p);
     }
+  }, [effectiveRepoId, tree, openFile]);
+
+  function pickFile(p) {
+    void openFile(p);
+    setTreeOpen(false);
   }
 
+  const mono = { fontFamily: '"Courier New", Courier, monospace' };
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-      <div
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        minHeight: 0,
+        background: "#0d0d0f",
+        overflow: "hidden",
+        ...mono,
+      }}
+    >
+      {/* Top bar */}
+      <header
         style={{
+          flexShrink: 0,
           display: "flex",
-          flexDirection: "column",
-          gap: 6,
-          padding: 8,
-          borderBottom: "1px solid #222",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          padding: "10px 14px",
+          borderBottom: "1px solid #1f1f24",
+          flexWrap: "wrap",
         }}
       >
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        <input
-          value={repoUrl}
-          onChange={(e) => setRepoUrl(e.target.value)}
-          placeholder="GitHub repository URL"
-          style={{ flex: "1 1 200px", background: "#111", color: "#eee", border: "1px solid #333" }}
-        />
-        <input
-          type="password"
-          autoComplete="off"
-          placeholder="API token"
-          value={token}
-          onChange={(e) => setApiToken(e.target.value)}
-          title="Bearer token (or set VITE_API_TOKEN in .env)"
-          style={{ width: 200, background: "#111", color: "#eee", border: "1px solid #333" }}
-        />
-        <button
-          type="button"
-          onClick={async () => {
-            const auth = getBearerToken();
-            console.log(
-              "[Navigator] Connect click — token length:",
-              auth.length,
-              "value:",
-              auth,
-            );
-            if (!auth) {
-              window.alert("Set the API token (or VITE_API_TOKEN in .env) before connecting.");
-              return;
-            }
-            const { repoId: rid, alreadyIndexed } = await connect(repoUrl);
-            setSessionRepoId(rid);
-            if (alreadyIndexed) {
-              setPct(100);
-              void pullMeta(rid);
-              void loadTree(rid);
-            } else {
-              try {
-                await getSSE(`${base}/repos/${rid}/status`, getBearerToken, (_, data) => {
-                  try {
-                    const j = JSON.parse(data);
-                    setPct(Number(j.progress_pct) || 0);
-                    if (j.stage === "done") {
-                      void pullMeta(rid);
-                      void loadTree(rid);
-                    }
-                  } catch {
-                    void 0;
-                  }
-                });
-              } catch {
-                void 0;
-              }
-            }
-          }}
-        >
-          Connect
-        </button>
-        <button type="button" onClick={() => setGraphOpen(true)} disabled={!file}>
-          Graph
-        </button>
-        </div>
-        {repoId ? (
-          <div style={{ fontSize: 12, color: "#a3a3a3" }}>
-            Connected:{" "}
-            <strong style={{ color: "#e5e5e5" }}>{metaLocal.name || "repository"}</strong>
-            <span style={{ opacity: 0.65, marginLeft: 10, fontFamily: "monospace", fontSize: 11 }}>
-              {repoId}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span
+            style={{
+              fontSize: 11,
+              color: "#555",
+              letterSpacing: "0.15em",
+              textTransform: "uppercase",
+            }}
+          >
+            CODEBASE NAVIGATOR
+          </span>
+          {metaLocal.name ? (
+            <span
+              style={{
+                fontSize: 11,
+                padding: "3px 10px",
+                borderRadius: 999,
+                background: "#0d1f0d",
+                border: "1px solid #1a3a1a",
+                color: "#4ade80",
+              }}
+            >
+              {metaLocal.name}
             </span>
-          </div>
-        ) : null}
-      </div>
-      <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-        <div style={{ width: 260, borderRight: "1px solid #222", padding: 8, overflow: "auto" }}>
-          <ProgressBar pct={pct} label={metaLocal.status || "idle"} />
-          <FileTree
-            tree={tree}
-            onPick={(p) => void openFile(p)}
-            refs={refs.map((r) => r.file)}
+          ) : null}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <input
+            value={repoUrl}
+            onChange={(e) => setRepoUrl(e.target.value)}
+            placeholder="Enter GitHub repo URL"
+            style={{
+              width: 280,
+              maxWidth: "100%",
+              background: "#0a0a0b",
+              color: "#aaa",
+              border: "1px solid #1f1f24",
+              padding: "6px 10px",
+              fontSize: 11,
+            }}
+          />
+          <button
+            type="button"
+            onClick={async () => {
+              const auth = getBearerToken();
+              if (!auth) {
+                window.alert("Set the API token (or VITE_API_TOKEN in .env) before connecting.");
+                return;
+              }
+              const { repoId: rid, alreadyIndexed } = await connect(repoUrl);
+              initialFileOpenedRef.current = false;
+              if (alreadyIndexed) {
+                setPct(100);
+                void pullMeta(rid);
+                void loadTree(rid);
+              } else {
+                try {
+                  await getSSE(`${base}/repos/${rid}/status`, getBearerToken, (_, data) => {
+                    try {
+                      const j = JSON.parse(data);
+                      setPct(Number(j.progress_pct) || 0);
+                      if (j.stage === "done") {
+                        void pullMeta(rid);
+                        void loadTree(rid);
+                      }
+                    } catch {
+                      void 0;
+                    }
+                  });
+                } catch {
+                  void 0;
+                }
+              }
+            }}
+            style={{
+              background: "#f5a623",
+              color: "#0d0d0f",
+              border: "none",
+              padding: "6px 14px",
+              fontSize: 11,
+              fontWeight: 700,
+              cursor: "pointer",
+              borderRadius: 2,
+            }}
+          >
+            Connect
+          </button>
+          <input
+            type="password"
+            autoComplete="new-password"
+            placeholder="Enter your API token"
+            value={token}
+            onChange={(e) => setApiToken(e.target.value)}
+            style={{
+              width: 160,
+              background: "#0a0a0b",
+              color: "#aaa",
+              border: "1px solid #1f1f24",
+              padding: "6px 10px",
+              fontSize: 11,
+            }}
           />
         </div>
-        <div style={{ flex: 1, minWidth: 0, borderRight: "1px solid #222" }}>
-          <CodeViewer path={file || ""} lines={lines} highlight={hi} />
+      </header>
+
+      {pct < 100 && metaLocal.status && metaLocal.status !== "complete" ? (
+        <div style={{ height: 2, background: "#1f1f24", flexShrink: 0 }}>
+          <div style={{ height: "100%", width: `${pct}%`, background: "#f5a623", transition: "width 0.2s" }} />
         </div>
-        <div style={{ width: 340, padding: 8 }}>
+      ) : null}
+
+      <div style={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
+        {/* Left: code + tree */}
+        <div
+          style={{
+            width: "52%",
+            minWidth: 0,
+            display: "flex",
+            flexDirection: "column",
+            borderRight: "1px solid #1f1f24",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              flexShrink: 0,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "8px 10px",
+              borderBottom: "1px solid #1f1f24",
+            }}
+          >
+            <button
+              type="button"
+              title="Toggle file tree"
+              onClick={() => setTreeOpen((o) => !o)}
+              style={{
+                background: "#111",
+                color: "#888",
+                border: "1px solid #2a2a2d",
+                padding: "4px 8px",
+                fontSize: 11,
+                cursor: "pointer",
+              }}
+            >
+              {treeOpen ? "◀" : "☰"}
+            </button>
+            <span style={{ fontSize: 11, color: "#666", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {file || "—"}
+            </span>
+          </div>
+
+          <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "row" }}>
+            {treeOpen ? (
+              <div
+                style={{
+                  width: 200,
+                  flexShrink: 0,
+                  borderRight: "1px solid #1f1f24",
+                  overflow: "auto",
+                  background: "#0a0a0b",
+                  padding: "6px 4px",
+                }}
+              >
+                <FileTree tree={tree} onPick={(p) => pickFile(p)} refs={refs.map((r) => r.file)} />
+              </div>
+            ) : null}
+            <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
+              <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+                <CodeViewer path={file || ""} lines={lines} highlight={hi} />
+              </div>
+
+              {fixOpen ? (
+                <div
+                  style={{
+                    flexShrink: 0,
+                    padding: "8px 10px",
+                    borderTop: "1px solid #1f1f24",
+                    background: "#0a0a0b",
+                  }}
+                >
+                  <div style={{ fontSize: 10, color: "#888", marginBottom: 6 }}>Describe the issue:</div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <input
+                      value={fixIssue}
+                      onChange={(e) => setFixIssue(e.target.value)}
+                      placeholder="Issue to fix"
+                      style={{
+                        flex: 1,
+                        background: "#0d0d0f",
+                        border: "1px solid #2a2a2d",
+                        color: "#ccc",
+                        padding: "6px 8px",
+                        fontSize: 11,
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const issue = (fixIssue || "").trim();
+                        if (!file) return;
+                        chatRef.current?.runQuery(
+                          { query_type: "fix", question: `${file}||${issue}` },
+                          `Fix: ${issue}`
+                        );
+                        setFixOpen(false);
+                        setFixIssue("");
+                      }}
+                      style={{
+                        background: "#f5a623",
+                        color: "#0d0d0f",
+                        border: "none",
+                        padding: "6px 12px",
+                        fontSize: 11,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Submit
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              <div
+                style={{
+                  flexShrink: 0,
+                  display: "flex",
+                  gap: 8,
+                  padding: "10px",
+                  borderTop: "1px solid #1f1f24",
+                  background: "#0d0d0f",
+                }}
+              >
+                <button
+                  type="button"
+                  disabled={!file}
+                  onClick={() => {
+                    setFixOpen(false);
+                    if (!file) return;
+                    chatRef.current?.runQuery({ query_type: "review", question: file }, `Review: ${file}`);
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: "8px 10px",
+                    fontSize: 11,
+                    cursor: file ? "pointer" : "not-allowed",
+                    background: "#1a0a0a",
+                    color: "#ef4444",
+                    border: "1px solid #3a1a1a",
+                    opacity: file ? 1 : 0.4,
+                  }}
+                >
+                  ⬡ Review
+                </button>
+                <button
+                  type="button"
+                  disabled={!file}
+                  onClick={() => {
+                    setFixOpen(false);
+                    if (!file) return;
+                    chatRef.current?.runQuery({ query_type: "improve", question: file }, `Improve: ${file}`);
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: "8px 10px",
+                    fontSize: 11,
+                    cursor: file ? "pointer" : "not-allowed",
+                    background: "#0a0a1a",
+                    color: "#60a5fa",
+                    border: "1px solid #1a1a3a",
+                    opacity: file ? 1 : 0.4,
+                  }}
+                >
+                  ⬡ Improve
+                </button>
+                <button
+                  type="button"
+                  disabled={!file}
+                  onClick={() => {
+                    setFixOpen((o) => !o);
+                    setFixIssue("");
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: "8px 10px",
+                    fontSize: 11,
+                    cursor: file ? "pointer" : "not-allowed",
+                    background: "#1a1a0a",
+                    color: "#f5a623",
+                    border: "1px solid #3a3a1a",
+                    opacity: file ? 1 : 0.4,
+                  }}
+                >
+                  ⬡ Fix issue
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right: chat */}
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            padding: "10px 12px",
+            display: "flex",
+            flexDirection: "column",
+            minHeight: 0,
+            height: "100%",
+            overflow: "hidden",
+          }}
+        >
           <ChatPanel
+            ref={chatRef}
             repoId={effectiveRepoId ?? ""}
             getBearerToken={getBearerToken}
             apiBase={base}
             onRefs={setRefs}
             onOpen={(f, ln) => void openFile(f, ln)}
-            history={hist}
           />
         </div>
       </div>
-      <div
-        style={{
-          display: "flex",
-          gap: 16,
-          padding: "6px 10px",
-          fontSize: 12,
-          borderTop: "1px solid #222",
-          opacity: 0.85,
-        }}
-      >
-        <span>{metaLocal.name || "—"}</span>
-        <span>
-          {metaLocal.status} · files {metaLocal.files ?? "—"} · chunks {metaLocal.chunks ?? "—"}
-        </span>
-        <span>Claude 3.5 Sonnet</span>
-      </div>
-      <DependencyGraph
-        open={graphOpen}
-        onClose={() => setGraphOpen(false)}
-        center={file}
-        edges={edges}
-        onPick={(p) => void openFile(p)}
-      />
+
     </div>
   );
 }

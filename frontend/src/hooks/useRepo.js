@@ -1,6 +1,6 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-const apiBase = () => import.meta.env.VITE_API_URL || "";
+const apiBase = () => (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 
 const LS_TOKEN = "nav_api_token";
 const LS_REPO = "nav_repo";
@@ -13,28 +13,6 @@ function normalizeRawToken(value) {
     s = s.replace(/^Bearer\s+/i, "").trim();
   }
   return s;
-}
-
-function readInitialToken() {
-  let stored = "";
-  try {
-    const s = localStorage.getItem(LS_TOKEN);
-    if (s !== null) stored = s;
-  } catch {
-    void 0;
-  }
-  const fromEnv = import.meta.env.VITE_API_TOKEN || "";
-  const raw = stored || fromEnv;
-  const normalized = normalizeRawToken(raw);
-  if (stored && normalized !== stored) {
-    try {
-      if (normalized) localStorage.setItem(LS_TOKEN, normalized);
-      else localStorage.removeItem(LS_TOKEN);
-    } catch {
-      void 0;
-    }
-  }
-  return normalized;
 }
 
 function readInitialRepoId() {
@@ -55,16 +33,30 @@ function readInitialRepoUrl() {
   return "https://github.com/octocat/Hello-World";
 }
 
-const _bootToken = readInitialToken();
+function removeStoredRepoId() {
+  try {
+    localStorage.removeItem(LS_REPO);
+  } catch {
+    void 0;
+  }
+}
 
 export function useRepo() {
   const [repoId, setRepoId] = useState(readInitialRepoId);
   const [meta, setMeta] = useState({ status: "", files: 0, chunks: 0, name: "" });
   const [tree, setTree] = useState(null);
-  const [token, setToken] = useState(() => _bootToken);
+  const [token, setToken] = useState("");
   /** Always up to date for fetch(); updated in setApiToken before setState. */
-  const tokenRef = useRef(_bootToken);
+  const tokenRef = useRef("");
   const [repoUrl, setRepoUrlState] = useState(readInitialRepoUrl);
+
+  useEffect(() => {
+    try {
+      localStorage.removeItem(LS_TOKEN);
+    } catch {
+      void 0;
+    }
+  }, []);
 
   const setApiToken = useCallback((value) => {
     const normalized = normalizeRawToken(value);
@@ -88,14 +80,22 @@ export function useRepo() {
     }
   }, []);
 
-  const getBearerToken = useCallback(
-    () => normalizeRawToken(tokenRef.current),
-    []
-  );
+  const clearStaleRepo = useCallback(() => {
+    removeStoredRepoId();
+    setRepoId("");
+    setTree(null);
+    setMeta({ status: "", files: 0, chunks: 0, name: "" });
+  }, []);
+
+  const getBearerToken = useCallback(() => {
+    const fromInput = normalizeRawToken(tokenRef.current);
+    if (fromInput) return fromInput;
+    return normalizeRawToken(import.meta.env.VITE_API_TOKEN || "");
+  }, []);
 
   const connect = useCallback(
     async (githubUrl) => {
-      const auth = normalizeRawToken(tokenRef.current);
+      const auth = getBearerToken();
       const r = await fetch(`${apiBase()}/repos`, {
         method: "POST",
         headers: {
@@ -117,8 +117,25 @@ export function useRepo() {
       setMeta((m) => ({ ...m, status: done ? "complete" : "pending" }));
       return { repoId: j.repo_id, alreadyIndexed: done };
     },
-    [setRepoUrl]
+    [setRepoUrl, getBearerToken]
   );
+
+  useEffect(() => {
+    if (!repoId) return;
+    const auth = getBearerToken();
+    if (!auth) return;
+    let cancelled = false;
+    (async () => {
+      const r = await fetch(`${apiBase()}/repos/${encodeURIComponent(repoId)}`, {
+        headers: { Authorization: `Bearer ${auth}` },
+      });
+      if (cancelled) return;
+      if (r.status === 404) clearStaleRepo();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [repoId, token, getBearerToken, clearStaleRepo]);
 
   const loadTree = useCallback(
     async (overrideId) => {
@@ -127,11 +144,15 @@ export function useRepo() {
       const r = await fetch(`${apiBase()}/repos/${id}/tree`, {
         headers: { Authorization: `Bearer ${getBearerToken()}` },
       });
+      if (r.status === 404) {
+        clearStaleRepo();
+        return;
+      }
       if (!r.ok) return;
       const j = await r.json();
       setTree(j.tree);
     },
-    [repoId, getBearerToken]
+    [repoId, getBearerToken, clearStaleRepo]
   );
 
   return {
@@ -148,5 +169,6 @@ export function useRepo() {
     apiBase,
     repoUrl,
     setRepoUrl,
+    clearStaleRepo,
   };
 }

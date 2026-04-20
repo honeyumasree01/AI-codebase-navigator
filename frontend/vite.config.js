@@ -3,5 +3,17 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [react()],
-  server: { port: 5173, proxy: { "/repos": "http://127.0.0.1:8000", "/health": "http://127.0.0.1:8000" } },
+  server: {
+    port: 5173,
+    proxy: {
+      "/repos": {
+        target: "http://localhost:8000",
+        changeOrigin: true,
+      },
+      "/health": {
+        target: "http://localhost:8000",
+        changeOrigin: true,
+      },
+    },
+  },
 });

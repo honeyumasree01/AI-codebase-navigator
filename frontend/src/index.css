@@ -6,7 +6,20 @@ body,
 #root {
   height: 100%;
   margin: 0;
-  font-family: system-ui, sans-serif;
-  background: #0f1115;
-  color: #e6e6e6;
+  overflow: hidden;
+  font-family: "Courier New", Courier, monospace;
+  background: #0d0d0f;
+  color: #9d9d9d;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+button,
+input,
+textarea {
+  font-family: inherit;
 }

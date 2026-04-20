@@ -25,20 +25,28 @@ async function readEventStream(res, onEvent) {
   const reader = res.body.getReader();
   const dec = new TextDecoder();
   let buf = "";
+  const separator = /\r?\n\r?\n/;
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
     buf += dec.decode(value, { stream: true });
-    let i;
-    while ((i = buf.indexOf("\n\n")) >= 0) {
+    let match;
+    while ((match = separator.exec(buf)) !== null) {
+      const i = match.index;
       const block = buf.slice(0, i);
-      buf = buf.slice(i + 2);
+      buf = buf.slice(i + match[0].length);
       let ev = "message";
-      let data = "";
-      for (const ln of block.split("\n")) {
+      const dataLines = [];
+      for (const ln of block.split(/\r?\n/)) {
         if (ln.startsWith("event:")) ev = ln.slice(6).trim();
-        if (ln.startsWith("data:")) data += ln.slice(5).trim();
+        if (ln.startsWith("data:")) {
+          let chunk = ln.slice(5);
+          // SSE allows one optional leading space after "data:".
+          if (chunk.startsWith(" ")) chunk = chunk.slice(1);
+          dataLines.push(chunk);
+        }
       }
+      const data = dataLines.join("\n");
       if (data) onEvent(ev, data);
     }
   }

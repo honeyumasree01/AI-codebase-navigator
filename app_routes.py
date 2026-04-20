@@ -24,7 +24,7 @@ class ConnectBody(BaseModel):
 
 
 class QueryBody(BaseModel):
-    query_type: Literal["location", "impact", "explain", "flow"]
+    query_type: Literal["location", "impact", "explain", "flow", "review", "improve", "fix"]
     question: str | None = None
     symbol: str | None = None
     file_path: str | None = None
@@ -132,6 +132,9 @@ async def repo_query(repo_id: UUID, body: QueryBody, __=Depends(require_token)):
             ans = await run_query(repo_id, str(repo_id), qt, payload)
         except Exception as ex:
             yield {"event": "error", "data": str(ex)}
+            return
+        if qt in ("review", "improve", "fix"):
+            yield {"event": "complete", "data": json.dumps(ans)}
             return
         blob = (
             ans.get("answer")
