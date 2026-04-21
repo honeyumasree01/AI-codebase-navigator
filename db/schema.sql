@@ -1,4 +1,4 @@
-CREATE TABLE repos (
+CREATE TABLE IF NOT EXISTS repos (
     id UUID PRIMARY KEY,
     github_url TEXT NOT NULL,
     name TEXT,
@@ -11,14 +11,14 @@ CREATE TABLE repos (
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
-CREATE TABLE repo_files (
+CREATE TABLE IF NOT EXISTS repo_files (
     repo_id UUID REFERENCES repos(id) ON DELETE CASCADE,
     path TEXT NOT NULL,
     content TEXT NOT NULL,
     PRIMARY KEY (repo_id, path)
 );
 
-CREATE TABLE query_history (
+CREATE TABLE IF NOT EXISTS query_history (
     id UUID PRIMARY KEY,
     repo_id UUID REFERENCES repos(id) ON DELETE CASCADE,
     query_type TEXT,

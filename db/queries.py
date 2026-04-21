@@ -1,5 +1,6 @@
 import json
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -12,16 +13,27 @@ _engine = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
 
 
-def db_init() -> None:
+def _ensure_engine() -> None:
     global _engine, _session_factory
+    if _engine is not None and _session_factory is not None:
+        return
     url = get_settings().database_url
     _engine = create_async_engine(url, pool_pre_ping=True)
     _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
 
 
+async def db_init() -> None:
+    _ensure_engine()
+    assert _engine is not None
+    schema_path = Path(__file__).with_name("schema.sql")
+    schema_sql = schema_path.read_text(encoding="utf-8")
+    async with _engine.begin() as conn:
+        await conn.execute(text(schema_sql))
+
+
 def session_factory() -> async_sessionmaker[AsyncSession]:
     if _session_factory is None:
-        db_init()
+        _ensure_engine()
     assert _session_factory is not None
     return _session_factory
 
