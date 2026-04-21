@@ -1,6 +1,5 @@
 import json
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -25,10 +24,51 @@ def _ensure_engine() -> None:
 async def db_init() -> None:
     _ensure_engine()
     assert _engine is not None
-    schema_path = Path(__file__).with_name("schema.sql")
-    schema_sql = schema_path.read_text(encoding="utf-8")
     async with _engine.begin() as conn:
-        await conn.execute(text(schema_sql))
+        await conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS repos (
+                    id UUID PRIMARY KEY,
+                    github_url TEXT NOT NULL,
+                    name TEXT,
+                    status TEXT DEFAULT 'pending',
+                    error_message TEXT,
+                    file_count INTEGER,
+                    chunk_count INTEGER,
+                    file_tree JSONB,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    updated_at TIMESTAMP DEFAULT NOW()
+                )
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS repo_files (
+                    repo_id UUID REFERENCES repos(id) ON DELETE CASCADE,
+                    path TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    PRIMARY KEY (repo_id, path)
+                )
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS query_history (
+                    id UUID PRIMARY KEY,
+                    repo_id UUID REFERENCES repos(id) ON DELETE CASCADE,
+                    query_type TEXT,
+                    question TEXT,
+                    answer JSONB,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+                """
+            )
+        )
 
 
 def session_factory() -> async_sessionmaker[AsyncSession]:
