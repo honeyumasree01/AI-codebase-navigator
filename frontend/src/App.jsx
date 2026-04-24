@@ -6,6 +6,19 @@ import { useRepo } from "./hooks/useRepo.js";
 import { getSSE } from "./hooks/useSSE.js";
 import { firstFilePathInTree } from "./utils/tree.js";
 
+async function wakeUpServer(apiBase) {
+  try {
+    await fetch(`${apiBase}/health`, {
+      method: "GET",
+      mode: "no-cors",
+    });
+    // wait 2 seconds for server to fully wake
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  } catch {
+    // ignore errors
+  }
+}
+
 export default function App() {
   const {
     repoId,
@@ -186,6 +199,7 @@ export default function App() {
                 return;
               }
               try {
+                await wakeUpServer(base);
                 const { repoId: rid, alreadyIndexed } = await connect(repoUrl);
                 initialFileOpenedRef.current = false;
                 if (alreadyIndexed) {

@@ -1,3 +1,4 @@
+import os
 import json
 from datetime import datetime
 from typing import Any
@@ -16,7 +17,12 @@ def _ensure_engine() -> None:
     global _engine, _session_factory
     if _engine is not None and _session_factory is not None:
         return
-    url = get_settings().database_url
+    url = os.environ.get("DATABASE_URL", "")
+    # Convert postgresql:// to postgresql+asyncpg://
+    if url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+asyncpg://", 1)
     _engine = create_async_engine(url, pool_pre_ping=True)
     _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
 
