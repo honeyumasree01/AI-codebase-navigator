@@ -1,14 +1,19 @@
+import os
+
 from celery import Celery
 
-from utils.config import get_settings
-
-s = get_settings()
 celery_app = Celery(
-    "navigator",
-    broker=s.redis_url,
-    backend=s.redis_url,
+    "tasks",
+    broker=os.environ.get("REDIS_URL"),
+    backend=os.environ.get("REDIS_URL"),
 )
-celery_app.conf.update(task_serializer="json", result_serializer="json", accept_content=["json"])
+celery_app.conf.update(
+    worker_concurrency=1,
+    worker_prefetch_multiplier=1,
+    task_acks_late=True,
+    worker_max_tasks_per_child=10,
+    worker_max_memory_per_child=400000,
+)
 
 
 @celery_app.task(bind=True, max_retries=3, name="ingest_repo")
