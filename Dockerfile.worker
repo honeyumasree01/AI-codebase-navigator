@@ -1,0 +1,6 @@
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt --break-system-packages
+COPY . .
+CMD ["celery", "-A", "worker.tasks.celery_app", "worker", "-l", "info", "--concurrency=1", "--max-memory-per-child=400000"]
